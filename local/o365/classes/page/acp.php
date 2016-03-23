@@ -334,6 +334,128 @@ class acp extends base {
         die();
     }
 
+    public function mode_maintenance_debugdata() {
+        global $CFG;
+
+        $pluginmanager = \core_plugin_manager::instance();
+
+        $plugins = [
+            'auth_oidc' => [
+                'authendpoint',
+                'tokenendpoint',
+                'oidcresource',
+                'autoappend',
+                'domainhint',
+                'loginflow',
+                'debugmode',
+            ],
+            'block_microsoft' => [
+                'showo365download',
+                'settings_showonenotenotebook',
+                'settings_showoutlooksync',
+                'settings_showpreferences',
+                'settings_showo365connect',
+                'settings_showmanageo365conection',
+                'settings_showcoursespsite',
+            ],
+            'filter_oembed' => [
+                'o365video',
+                'officemix',
+                'sway',
+                'provider_docsdotcom_enabled',
+            ],
+            'local_microsoftservices' => [],
+            'local_msaccount' => [],
+            'local_o365' => [
+                'aadsync',
+                'aadtenant',
+                'azuresetupresult',
+                'chineseapi',
+                'creategroups',
+                'debugmode',
+                'enableunifiedapi',
+                'fieldmap',
+                'odburl',
+                'photoexpire',
+                'usersynccreationrestriction',
+                'sharepoint_initialized',
+                'task_usersync_lastskiptoken',
+                'unifiedapiactive',
+            ],
+            'local_office365' => [],
+            'local_onenote' => [],
+            'assignsubmission_onenote' => [],
+            'assignfeedback_onenote' => [],
+            'repository_office365' => [],
+            'repository_onenote' => [],
+        ];
+
+        $configdata = [];
+
+        $configdata['moodlecfg'] = [
+            'dbtype' => $CFG->dbtype,
+            'debug' => $CFG->debug,
+            'debugdisplay' => $CFG->debugdisplay,
+            'debugdeveloper' => $CFG->debugdeveloper,
+            'auth' => $CFG->auth,
+            'timezone' => $CFG->timezone,
+            'forcetimezone' => $CFG->forcetimezone,
+            'authpreventaccountcreation' => $CFG->authpreventaccountcreation,
+            'alternateloginurl' => $CFG->alternateloginurl,
+            'release' => $CFG->release,
+            'version' => $CFG->version,
+        ];
+
+        $configdata['plugin_data'] = [];
+        foreach ($plugins as $plugin => $settings) {
+            $plugintype = substr($plugin, 0, strpos($plugin, '_'));
+            $pluginsubtype = substr($plugin, strpos($plugin, '_') + 1);
+
+            $plugindata = [];
+            $plugincfg = get_config($plugin);
+
+            $plugindata['version'] = (isset($plugincfg->version)) ? $plugincfg->version : 'null';
+
+            $enabled = $pluginmanager->get_enabled_plugins($plugintype);
+            $plugindata['enabled'] = (isset($enabled[$pluginsubtype])) ? 1 : 0;
+
+            foreach ($settings as $setting) {
+                $plugindata[$setting] = (isset($plugincfg->$setting)) ? $plugincfg->$setting : null;
+            }
+
+            $configdata['plugin_data'][$plugin] = $plugindata;
+        }
+
+        $azuredata = [];
+        $httpclient = new \local_o365\httpclient();
+        $aadresource = \local_o365\rest\azuread::get_resource();
+        $clientdata = \local_o365\oauth2\clientdata::instance_from_oidc();
+        $token = \local_o365\oauth2\systemtoken::instance(null, $aadresource, $clientdata, $httpclient);
+        $aadapiclient = new \local_o365\rest\azuread($token, $httpclient);
+
+        echo '<pre>';
+        print_r($aadapiclient->get_application_info());
+        die();
+        list($missingperms, $haswrite) = $aadapiclient->check_permissions();
+        $azuredata['legacy_setup'] = ['missingperms' => $missingperms];
+
+        // Graph setup check.
+        $graphresource = \local_o365\rest\unified::get_resource();
+        $token = \local_o365\oauth2\systemtoken::instance(null, $graphresource, $clientdata, $httpclient);
+        if (empty($token)) {
+            throw new \moodle_exception('errorchecksystemapiuser', 'local_o365');
+        }
+        $graphapiclient = new \local_o365\rest\unified($token, $httpclient);
+        $graphsetupresult = $graphapiclient->check_permissions();
+        $azuredata['graph_setup'] = ($graphsetupresult !== null)
+            ? ['active' => 1, 'missingperms' => $graphsetupresult] : ['active' => 0];
+
+        $configdata['azure_data'] = $azuredata;
+
+        echo '<pre>';
+        print_r($configdata);
+    }
+
     /**
      * Maintenance tools.
      */
@@ -352,6 +474,12 @@ class acp extends base {
         $toolname = get_string('acp_maintenance_coursegroupusers', 'local_o365');
         echo \html_writer::link($toolurl, $toolname, ['target' => '_blank']);
         echo \html_writer::div(get_string('acp_maintenance_coursegroupusers_desc', 'local_o365'));
+        echo \html_writer::empty_tag('br');
+        echo \html_writer::empty_tag('br');
+        $toolurl = new \moodle_url($this->url, ['mode' => 'maintenance_debugdata']);
+        $toolname = get_string('acp_maintenance_debugdata', 'local_o365');
+        echo \html_writer::link($toolurl, $toolname);
+        echo \html_writer::div(get_string('acp_maintenance_debugdata_desc', 'local_o365'));
 
         $this->standard_footer();
     }
