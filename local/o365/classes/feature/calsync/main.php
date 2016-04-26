@@ -166,6 +166,14 @@ class main {
         $body = $event->description;
         $timestart = $event->timestart;
         $timeend = $timestart + $event->timeduration;
+        // Assemble o365 group data.
+        $outlookgroupname = $this->construct_outlook_group_name($event->courseid);
+        $outlookgroupemail = null;
+        $outlookgroupuser = null;
+        $outlookeventorganizer = [];
+        $firstname = '';
+        $lastname = '';
+        list($firstname, $lastname) = $this->group_first_last_name($outlookgroupname);
 
         // Get attendees.
         if (isset($event->courseid) && $event->courseid == SITEID) {
@@ -176,7 +184,8 @@ class main {
                            u.firstname,
                            u.lastname,
                            sub.isprimary as subisprimary,
-                           sub.o365calid as subo365calid
+                           sub.o365calid as subo365calid,
+                           sub.o365calemail as subo365calemail
                       FROM {user} u
                       JOIN {local_o365_calsub} sub ON sub.user_id = u.id
                      WHERE sub.caltype = ? AND (sub.syncbehav = ? OR sub.syncbehav = ?)';
@@ -210,7 +219,8 @@ class main {
                                u.firstname,
                                u.lastname,
                                sub.isprimary as subisprimary,
-                               sub.o365calid as subo365calid
+                               sub.o365calid as subo365calid,
+                               sub.o365calemail as subo365calemail
                           FROM {user} u
                           JOIN {user_enrolments} ue ON ue.userid = u.id
                           JOIN {enrol} e ON e.id = ue.enrolid
@@ -247,13 +257,37 @@ class main {
         $nonprimarycalsubs = [];
         $eventcreatorsub = null;
         foreach ($attendees as $userid => $attendee) {
+            // The user who initiated the event should always be an event creator.
             if ($userid == $event->userid) {
                 $eventcreatorsub = $attendee;
-            }
-            if (isset($attendee->subisprimary) && $attendee->subisprimary == '0') {
+            } elseif (isset($attendee->subisprimary) && $attendee->subisprimary == '0' && empty($attendee->subo365calemail)) {
+                // If the attendee subscription is not their primary calendar and it is not a outlook group subscription.
                 $nonprimarycalsubs[] = $attendee;
                 unset($attendees[$userid]);
             }
+
+            // Collect information about the Outlook group user.
+            if (isset($attendee->subo365calemail) && !empty($attendee->subo365calemail) && is_null($outlookgroupuser)) {
+                $outlookgroupuser = new \stdClass();
+                $outlookgroupuser->email = $attendee->subo365calemail;
+                $outlookgroupuser->firstname = $firstname;
+                $outlookgroupuser->lastname = $lastname;
+                $outlookgroupemail = $attendee->subo365calemail;
+            }
+        }
+
+        // Add the Outlook group user as an attendee and organizer to the event.
+        if (!empty($outlookgroupuser)) {
+            $attendees[] = $outlookgroupuser;
+            // Add o365 group as organizer for the event.
+            $outlookeventorganizer = [
+                'organizer' => [
+                    'EmailAddress' => [
+                        'Name' => $outlookgroupname,
+                        'Address' => $outlookgroupemail,
+                    ]
+                ]
+            ];
         }
 
         // Sync primary-calendar users as attendees on a single event.
@@ -263,7 +297,7 @@ class main {
             if (isset($eventcreatorsub->subisprimary) && $eventcreatorsub->subisprimary == 1) {
                 $calid = null;
             }
-            $response = $apiclient->create_event($subject, $body, $timestart, $timeend, $attendees, [], $calid);
+            $response = $apiclient->create_event($subject, $body, $timestart, $timeend, $attendees, $outlookeventorganizer, $calid);
             $idmaprec = [
                 'eventid' => $event->id,
                 'outlookeventid' => $response['Id'],
@@ -300,6 +334,41 @@ class main {
         $apiclient = $this->construct_calendar_api($USER->id, false);
         $response = $apiclient->get_calendars();
         return (!empty($response['value']) && is_array($response['value'])) ? $response['value'] : [];
+    }
+
+    /**
+     * Get user calendars groups.
+     *
+     * @return array Array of user calendars groups.
+     */
+    public function get_calendargroups() {
+        global $USER;
+        $apiclient = $this->construct_calendar_api($USER->id, false);
+        $pagemax = 5;
+        $groups = array();
+        $response = $apiclient->get_groups();
+
+        for ($i = 0; $i < $pagemax; $i++) {
+            if (!empty($response['value']) && is_array($response['value'])) {
+                $groups = array_merge($groups, $response['value']);
+            } else {
+                break;
+            }
+            // Check for paged data.
+            $nextlink = '';
+            if (isset($response['odata.nextLink'])) {
+                $nextlink = $response['odata.nextLink'];
+            } else if (isset($response['@odata.nextLink'])) {
+                $nextlink = $response['@odata.nextLink'];
+            }
+            if (empty($nextlink)) {
+                break;
+            }
+            $skiptoken = $this->extract_skiptoken($nextlink);
+            $response = $apiclient->get_groups($skiptoken);
+        }
+
+        return $groups;
     }
 
     /**
@@ -374,5 +443,75 @@ class main {
         $DB->delete_records('local_o365_calidmap', ['eventid' => $moodleeventid]);
 
         return true;
+    }
+
+    /**
+     * Construct the o365 group name from the site and course name.
+     * @param int $courseid The event course id.
+     * @return string The o365 group name.
+     */
+    protected function construct_outlook_group_name($courseid) {
+        global $DB;
+
+        $groupname = '';
+        if (empty($courseid)) {
+            return $groupname;
+        }
+        // Assemble Moodle course data and reconstruct the o365 group name.
+        $groupprefix = $DB->get_field('course', 'shortname', ['id' => SITEID]);
+        $groupname = $DB->get_field('course', 'fullname', ['id' => $courseid]);
+
+        if (empty($groupname)) {
+            return '';
+        }
+
+        if (!empty($groupprefix)) {
+            $groupname = $groupprefix.': '.$groupname;
+        }
+
+        return $groupname;
+    }
+
+    /**
+     * Get group first and last name.
+     * @param string $groupname The o365 group name.
+     * @return array The first index is the first name and the second index is the last name.
+     */
+    protected function group_first_last_name($groupname) {
+        $firstname = '';
+        $lastname = '';
+        if (empty($groupname)) {
+            return array($firstname, $lastname);
+        }
+
+        $pos = strpos($groupname, ': ');
+
+        if (false === $pos) {
+            return array($firstname, $lastname);
+        }
+
+        $firstname = substr($groupname, 0, $pos + 1);
+        $lastname = substr($groupname, $pos + 1);
+        $lastname = trim($lastname);
+        return array($firstname, $lastname);
+    }
+
+    /**
+     * Extract a deltalink value from a full aad.nextLink URL.
+     *
+     * @param string $nextlink A full aad.nextLink URL.
+     * @return string|null The extracted deltalink value, or null if none found.
+     */
+    protected function extract_skiptoken($nextlink) {
+        $nextlink = parse_url($nextlink);
+
+        if (isset($nextlink['query'])) {
+            $output = [];
+            parse_str($nextlink['query'], $output);
+            if (isset($output['$skiptoken'])) {
+                return $output['$skiptoken'];
+            }
+        }
+        return null;
     }
 }

@@ -138,10 +138,22 @@ class unified extends \local_o365\rest\o365api {
     /**
      * Get a list of groups.
      *
+     * @param string $skiptoken A skiptoken param from a previous get_users query. For pagination.
      * @return array List of groups.
      */
-    public function get_groups() {
-        $response = $this->apicall('get', '/groups');
+    public function get_groups($skiptoken = '') {
+        $endpoint = '/groups';
+        if (empty($skiptoken) || !is_string($skiptoken)) {
+            $skiptoken = '';
+        }
+        if (!empty($skiptoken)) {
+            $odataqueries[] = '$skiptoken='.$skiptoken;
+        }
+        if (!empty($odataqueries)) {
+            $endpoint .= '?'.implode('&', $odataqueries);
+        }
+
+        $response = $this->apicall('get', $endpoint);
         $expectedparams = ['value' => null];
         return $this->process_apicall_response($response, $expectedparams);
     }

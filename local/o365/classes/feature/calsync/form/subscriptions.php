@@ -79,9 +79,10 @@ class subscriptions extends \moodleform {
      * @param string $primarycalid The o365 ID of the user's primary calendar.
      * @param bool $cancreatesiteevents Whether the user has permission to create site events.
      * @param array $cancreatecourseevents Array of user courses containing whether the user has permission to create course events.
+     * @param array $outlookgroups Array of group calendars.
      * @return bool Success/Failure.
      */
-    public static function update_subscriptions($fromform, $primarycalid, $cancreatesiteevents, $cancreatecourseevents) {
+    public static function update_subscriptions($fromform, $primarycalid, $cancreatesiteevents, $cancreatecourseevents, $outlookgroups) {
         global $DB, $USER;
 
         // Determine and organize existing subscriptions.
@@ -212,20 +213,29 @@ class subscriptions extends \moodleform {
         }
         foreach ($newcoursesubs as $courseid => $coursecaldata) {
             $syncwith = (!empty($coursecaldata['syncwith'])) ? $coursecaldata['syncwith'] : '';
+            // If a o365 calendar group was selected, use the o365 organizer email as an index, but save the standard calendar id value.
+            $outlookgroupemail = null;
+
+            if (validate_email($syncwith) && isset($outlookgroups[$syncwith])) {
+                $outlookgroupemail = $outlookgroups[$syncwith]['mail'];
+                $syncwith = $outlookgroups[$syncwith]['o365calid'];
+            }
+
             $syncbehav = (!empty($coursecaldata['syncbehav'])) ? $coursecaldata['syncbehav'] : 'out';
             if (empty($cancreatecourseevents[$courseid])) {
                 $syncbehav = 'out';
             }
             if (isset($toadd[$courseid])) {
-                // Not currently subscribed.
+                // Not currently subscribed.  If the subscription is a Outlook group calendar then set primary to 0.
                 $newsub = [
                     'user_id' => $USER->id,
                     'caltype' => 'course',
                     'caltypeid' => $courseid,
                     'o365calid' => $syncwith,
+                    'o365calemail' => $outlookgroupemail,
                     'syncbehav' => $syncbehav,
                     'timecreated' => time(),
-                    'isprimary' => ($syncwith == $primarycalid) ? '1' : '0',
+                    'isprimary' => ($syncwith == $primarycalid && is_null($outlookgroupemail)) ? '1' : '0',
                 ];
                 $DB->insert_record('local_o365_calsub', (object)$newsub);
                 $eventdata = [
@@ -243,13 +253,17 @@ class subscriptions extends \moodleform {
                 if ($existingcoursesubs[$courseid]->o365calid !== $syncwith) {
                     $changed = true;
                 }
+                if ($existingcoursesubs[$courseid]->o365calemail !== $outlookgroupemail) {
+                    $changed = true;
+                }
                 if ($changed === true) {
-                    // Already subscribed, update behavior.
+                    // Already subscribed, update behavior.  If the subscription is a Outlook group calendar then set primary to 0.
                     $updatedrec = [
                         'id' => $existingcoursesubs[$courseid]->id,
                         'o365calid' => $syncwith,
+                        'o365calemail' => $outlookgroupemail,
                         'syncbehav' => $syncbehav,
-                        'isprimary' => ($syncwith == $primarycalid) ? '1' : '0',
+                        'isprimary' => ($syncwith == $primarycalid && is_null($outlookgroupemail)) ? '1' : '0',
                     ];
                     $DB->update_record('local_o365_calsub', (object)$updatedrec);
                     $eventdata = [
