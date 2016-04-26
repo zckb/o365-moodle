@@ -105,6 +105,29 @@ class ucp extends base {
         }
         $primarycalid = $customdata['o365calendars'][0]['id'];
 
+        // Get course groups.
+        $outlookcrsgroups = $calsync->get_calendargroups();
+
+        // Get course groups objects stored in the objects table.
+        $crsgroupsobj = $DB->get_records('local_o365_objects', ['type' => 'group', 'subtype' => 'course'], null, 'objectid,o365name');
+        $o365groups = [];
+        // Iterate over course groups saving those that can be mapped to an object in the objects table.  The get_calendargroups API
+        // returns an ID but it is in a different format when compared to the starard calendar ids.  Instead save the mail
+        // property as it can be used to reference Outlook events via the organizer mail address property.
+        foreach ($outlookcrsgroups as $outlookcrsgroup) {
+            if (isset($crsgroupsobj[$outlookcrsgroup['id']]) && 'Public' == $outlookcrsgroup['visibility']) {
+                $o365groups[$outlookcrsgroup['mail']] =  ['mail' =>  $outlookcrsgroup['mail'], 'name' => $outlookcrsgroup['displayName'], 'o365calid' => $primarycalid];
+            }
+        }
+
+        // Add the additional course groups to form for selection.
+        foreach ($o365groups as $key => $o365group) {
+            $customdata['o365calendars'][] = [
+                'id' => $key,
+                'name' => $o365group['name'],
+                'mail' => $o365group['mail'],
+            ];
+        }
         // Determine permissions to create events. Determines whether user can sync from o365 to Moodle.
         $customdata['cancreatesiteevents'] = has_capability('moodle/calendar:manageentries', \context_course::instance(SITEID));
         foreach ($customdata['usercourses'] as $courseid => $course) {
@@ -117,7 +140,7 @@ class ucp extends base {
             redirect(new \moodle_url('/local/o365/ucp.php'));
         } else if ($fromform = $mform->get_data()) {
             \local_o365\feature\calsync\form\subscriptions::update_subscriptions($fromform, $primarycalid,
-                    $customdata['cancreatesiteevents'], $customdata['cancreatecourseevents']);
+                    $customdata['cancreatesiteevents'], $customdata['cancreatecourseevents'], $o365groups);
             redirect(new \moodle_url('/local/o365/ucp.php?action=calendar&saved=1'));
         } else {
             $PAGE->requires->jquery();
@@ -133,8 +156,12 @@ class ucp extends base {
                     $defaultdata['usercal']['syncwith'] = $existingsubrec->o365calid;
                     $defaultdata['usercal']['syncbehav'] = $existingsubrec->syncbehav;
                 } else if ($existingsubrec->caltype === 'course') {
+                    if (!empty($existingsubrec->o365calemail)) {
+                        $defaultdata['coursecal'][$existingsubrec->caltypeid]['syncwith'] = $existingsubrec->o365calemail;
+                    } else {
+                        $defaultdata['coursecal'][$existingsubrec->caltypeid]['syncwith'] = $existingsubrec->o365calid;
+                    }
                     $defaultdata['coursecal'][$existingsubrec->caltypeid]['checked'] = '1';
-                    $defaultdata['coursecal'][$existingsubrec->caltypeid]['syncwith'] = $existingsubrec->o365calid;
                     $defaultdata['coursecal'][$existingsubrec->caltypeid]['syncbehav'] = $existingsubrec->syncbehav;
                 }
             }
