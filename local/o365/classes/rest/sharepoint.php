@@ -320,6 +320,7 @@ class sharepoint extends \local_o365\rest\o365api {
      * @return array|null Returned response, or null if error.
      */
     public function create_site($title, $url, $description) {
+        // TODO check  for custom, if custom, then intercept this.
         $webcreationinformation = [
             'parameters' => [
                 'Title' => $title,
@@ -596,6 +597,7 @@ class sharepoint extends \local_o365\rest\o365api {
      * @return \stdClass An association record.
      */
     protected function create_course_subsite($course) {
+        // TODO Intercept
         global $DB;
         $now = time();
         $caller = '\local_o365\rest\sharepoint::create_course_subsite';
@@ -695,6 +697,7 @@ class sharepoint extends \local_o365\rest\o365api {
      * @return bool Success/Failure.
      */
     public function create_course_site($course) {
+        // TODO INTERCEPT
         global $DB;
         $now = time();
 

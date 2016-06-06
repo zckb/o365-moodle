@@ -536,6 +536,161 @@ class acp extends base {
     }
 
     /**
+     * Sharepoint course resource customization.
+     */
+    public function mode_sharepointcourseselect() {
+        global $OUTPUT, $PAGE, $DB, $CFG;
+
+        require_once($CFG->libdir.'/coursecatlib.php');
+        require_once ($CFG->libdir.'/formslib.php');
+
+        $PAGE->navbar->add(get_string('acp_sharepointcourseselect', 'local_o365'), new \moodle_url($this->url, ['mode' => 'sharepointcourseselect']));
+
+        $totalcount = 0;
+        $perpage = 20;
+
+        $curpage = optional_param('page', 0, PARAM_INT);
+        $sort = optional_param('sort', '', PARAM_ALPHA);
+        $sortdir = strtolower(optional_param('sortdir', 'asc', PARAM_ALPHA));
+        $selectisenabled = get_config('local_o365', 'sharepointcourseselect');
+
+        $headers = [
+            'shortname' => get_string('shortnamecourse'),
+            'fullname' => get_string('fullnamecourse'),
+            'category' => get_string('category'),
+        ];
+        if (empty($sort) || !isset($headers[$sort])) {
+            $sort = 'shortname';
+        }
+        if (!in_array($sortdir, ['asc', 'desc'], true)) {
+            $sortdir = 'asc';
+        }
+
+        $table = new \html_table;
+        foreach ($headers as $hkey => $desc) {
+            $diffsortdir = ($sort === $hkey && $sortdir === 'asc') ? 'desc' : 'asc';
+            $linkattrs = ['mode' => 'sharepointcourseselect', 'sort' => $hkey, 'sortdir' => $diffsortdir];
+            $link = new \moodle_url('/local/o365/acp.php', $linkattrs);
+
+            if ($sort === $hkey) {
+                $desc .= ' '.$OUTPUT->pix_icon('t/'.'sort_'.$sortdir, 'sort');
+            }
+            $table->head[] = \html_writer::link($link, $desc);
+        }
+        $table->head[] = get_string('acp_sharepointcourseselectlabel_enabled', 'local_o365');
+
+        $limitfrom = $curpage * $perpage;
+        $courses = get_courses_page('all', 'c.'.$sort.' '.$sortdir, 'c.*', $totalcount, $limitfrom, $perpage);
+        $categories = array();
+        foreach ($courses as $course) {
+            if ($course->id == SITEID) {
+                continue;
+            }
+            // TODO Change this to class sharepoint enabled
+            $isenabled = \local_o365\feature\usergroups\utils::course_is_group_enabled($course->id);
+            $enabledname = 'course_'.$course->id.'_enabled';
+
+            // TODO Update for sharepoint enabled
+            $enablecheckboxattrs = [
+                'onchange' => 'local_o365_set_sharepoint_enabled(\''.$course->id.'\', $(this).prop(\'checked\'), $(this))'
+            ];
+
+            $category = $DB->get_record('course_categories',array('id'=>$course->category));
+            $name = $category->name;
+            array_push($categories, $name);
+
+            $rowdata = [
+                $course->shortname,
+                $course->fullname,
+                '<span class="category-'.$category->id.'">'.$category->name.'</span>',
+                \html_writer::checkbox($enabledname, 1, $isenabled, '', $enablecheckboxattrs),
+            ];
+            $table->data[] = $rowdata;
+        }
+
+        $PAGE->requires->jquery();
+        $this->standard_header();
+
+        // TODO This stuff needs to be all redone for my stuff.
+        $endpoint = new \moodle_url('/local/o365/acp.php', ['mode' => 'usergroupcustom_change', 'sesskey' => sesskey()]);
+        $bulkendpoint = new \moodle_url('/local/o365/acp.php', ['mode' => 'usergroupcustom_bulkchange', 'sesskey' => sesskey()]);
+
+        // Build JS script content.
+        $js = 'var local_o365_set_sharepoint_enabled = function(courseid, state, checkbox) { ';
+        $js .= 'console.log("local_o365_set_sharepoint_enabled"); ';
+        $js .= '};';
+        // Filter by category.
+        // $js = 'var local_o365_filter_bycat = function() { ';
+        // $js .= 'console.log("initialized"); ';
+        // Add event listener to form.
+        // $js .= 'var $menu = $("#menucoursecat_dropdown"); ';
+        // $js .= '$menu.change(function() { ';
+        // $js .=    'console.log("changed."); console.log($menu.val())';
+        // $js .=    'if ($menu.val().length >= 1) {  }';
+        // $js .= '}); ';
+        // restore visibility to all
+        // make only those rows with the right category id visible
+        // $js .= '}; ';
+        // Filter by input.
+        // $js .= 'var local_o365_filter_byinput = function(courseid, state, checkbox) { ';
+        // $js .= '} ';
+        // // Enable enable all button.
+        // $js .= 'var local_o365_enable_button = function(courseid, state, checkbox) { ';
+        // $js .= '} ';
+        // // Enable all shown.
+        // $js .= 'var local_o365_enable_filtered = function(courseid, state, checkbox) { ';
+        // $js .= '} ';
+
+        // $js .= 'var local_o365_set_usergroup = function(courseid, state, checkbox) { ';
+        // $js .= 'data = {courseid: courseid, state: state}; ';
+        // $js .= '$.post(\''.$endpoint->out(false).'\', data, function(data) { console.log(data); }); ';
+        // $js .= 'var newfeaturedisabled = (state == 0) ? true : false; ';
+        // $js .= 'var newfeaturechecked = (state == 1) ? true : false; ';
+        // $js .= 'var featurecheckboxes = checkbox.parents("tr").find("input.feature"); ';
+        // $js .= 'featurecheckboxes.prop("disabled", newfeaturedisabled); ';
+        // $js .= 'featurecheckboxes.prop("checked", newfeaturechecked); ';
+        // $js .= '}; ';
+
+        // $js .= 'var local_o365_set_usergroup_feature = function(courseid, feature, state) { ';
+        // $js .= 'data = {courseid: courseid, feature: feature, state: state}; ';
+        // $js .= '$.post(\''.$endpoint->out(false).'\', data, function(data) { console.log(data); }); ';
+        // $js .= '}; ';
+
+        // $js .= 'var local_o365_usergroup_bulk_set_feature = function(feature, state) { ';
+        // $js .= 'var enabled = (state == 1) ? true : false; ';
+        // $js .= 'console.log(state, enabled); ';
+        // $js .= '$("input.feature_"+feature+":not(:disabled)").prop("checked", enabled); ';
+        // $js .= 'data = {feature: feature, state: state}; ';
+        // $js .= '$.post(\''.$bulkendpoint->out(false).'\', data, function(data) { console.log(data); }); ';
+        // $js .= '} ';
+        echo \html_writer::script($js);
+
+        if ($selectisenabled !== 'oncustom') {
+            // If the customization isn't enabled, then write a notification to the page instead.
+            $linkattrs = ['section' => 'local_o365'];
+            $actionurl = new \moodle_url('/admin/settings.php', $linkattrs);
+            echo \html_writer::tag('h2', get_string('acp_sharepointcourseselect', 'local_o365'));
+            echo \html_writer::tag('h5', get_string('acp_sharepointcourseselect_off_header', 'local_o365'));
+            echo \html_writer::start_tag('div', ['style' => 'display: inline-block;margin: 0 1rem']);
+            echo \html_writer::tag('p', get_string('acp_sharepointcourseselect_off_instr', 'local_o365'));
+            echo \html_writer::tag('button', get_string('acp_sharepointcourseselect_enableshown', 'local_o365'), ['href' => $actionurl]);
+            echo \html_writer::end_tag('div');
+        } else {
+            // Else write instrutions for selecting courses.
+            echo \html_writer::tag('h2', get_string('acp_sharepointcourseselect', 'local_o365'));
+            echo \html_writer::tag('h5', get_string('acp_sharepointcourseselect_instr_header', 'local_o365'));
+            echo \html_writer::tag('p', get_string('acp_sharepointcourseselect_instr', 'local_o365'));
+            // Begin courses table.
+            echo \html_writer::tag('h5', get_string('courses'));
+            echo \html_writer::table($table);
+            // URL and paging elements.
+            $cururl = new \moodle_url('/local/o365/acp.php', ['mode' => 'sharepointcourseselect']);
+            echo $OUTPUT->paging_bar($totalcount, $curpage, $perpage, $cururl);
+        }
+        $this->standard_footer();
+    }
+
+    /**
      * Maintenance tools.
      */
     public function mode_maintenance() {
