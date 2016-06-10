@@ -596,7 +596,6 @@ class sharepoint extends \local_o365\rest\o365api {
      * @return \stdClass An association record.
      */
     protected function create_course_subsite($course) {
-        // TODO Intercept
         global $DB;
         $now = time();
         $caller = '\local_o365\rest\sharepoint::create_course_subsite';
@@ -612,24 +611,29 @@ class sharepoint extends \local_o365\rest\o365api {
 
         $siteurl = strtolower(preg_replace('/[^a-z0-9_]+/iu', '', $course->shortname));
         $fullsiteurl = '/'.$this->parentsite.'/'.$siteurl;
-        // working
-        // $customsubsitesenabled = get_config('local_o365', 'sharepointcourseselect');
-        // $subsitesconfig = get_config('local_o365', 'sharepointsubsitescustom');
-        // error_log($subsitesconfig);
-        // $courseid = $course->id;
-        // $coursesubsiteenabled = $subsitesconfig[$courseid];
-        // error_log('test error log');
-        // error_log('$coursesubsiteenabled = '.$coursesubsiteenabled);
-        // error_log('evaluate for truthy = '.filter_var($coursesubsiteenabled, FILTER_VALIDATE_BOOLEAN));
 
-        // if ($customsubsitesenabled === 'off' || ($customsubsitesenabled == 'oncustom' && filter_var($coursesubsiteenabled, FILTER_VALIDATE_BOOLEAN))) {
-        // end working
         // Check if site exists.
-            if ($this->site_exists($fullsiteurl) !== true) {
-                // Create site.
-                \local_o365\utils::debug('Creating site '.$fullsiteurl, $caller);
+        if ($this->site_exists($fullsiteurl) !== true) {
+            // Create site.
+            \local_o365\utils::debug('Creating site '.$fullsiteurl, $caller);
+            $DB->delete_records('local_o365_coursespsite', ['courseid' => $course->id]);
+            $sitedata = $this->create_site($course->fullname, $siteurl, $course->summary);
+            $siterec = new \stdClass;
+            $siterec->courseid = $course->id;
+            $siterec->siteid = $sitedata['Id'];
+            $siterec->siteurl = $sitedata['ServerRelativeUrl'];
+            $siterec->timecreated = $now;
+            $siterec->timemodified = $now;
+            $siterec->id = $DB->insert_record('local_o365_coursespsite', $siterec);
+            return $siterec;
+        } else {
+            $debugmsg = 'Subsite already exists, looking for local data.';
+            \local_o365\utils::debug($debugmsg, $caller, $fullsiteurl);
+            if (!empty($siterec)) {
+                // We have a local spsite record for the course, but for a different parent site, so our record is out of date.
+                $sitedata = $this->get_site($fullsiteurl);
                 $DB->delete_records('local_o365_coursespsite', ['courseid' => $course->id]);
-                $sitedata = $this->create_site($course->fullname, $siteurl, $course->summary);
+                // Save site data.
                 $siterec = new \stdClass;
                 $siterec->courseid = $course->id;
                 $siterec->siteid = $sitedata['Id'];
@@ -639,33 +643,16 @@ class sharepoint extends \local_o365\rest\o365api {
                 $siterec->id = $DB->insert_record('local_o365_coursespsite', $siterec);
                 return $siterec;
             } else {
-                $debugmsg = 'Subsite already exists, looking for local data.';
-                \local_o365\utils::debug($debugmsg, $caller, $fullsiteurl);
-                if (!empty($siterec)) {
-                    // We have a local spsite record for the course, but for a different parent site, so our record is out of date.
-                    $sitedata = $this->get_site($fullsiteurl);
-                    $DB->delete_records('local_o365_coursespsite', ['courseid' => $course->id]);
-                    // Save site data.
-                    $siterec = new \stdClass;
-                    $siterec->courseid = $course->id;
-                    $siterec->siteid = $sitedata['Id'];
-                    $siterec->siteurl = $sitedata['ServerRelativeUrl'];
-                    $siterec->timecreated = $now;
-                    $siterec->timemodified = $now;
-                    $siterec->id = $DB->insert_record('local_o365_coursespsite', $siterec);
-                    return $siterec;
-                } else {
-                    $errmsg = 'Can\'t create a SharePoint subsite site because one exists but we don\'t have a local record.';
-                    $debugdata = [
-                        'fullsiteurl' => $fullsiteurl,
-                        'courseid' => $course->id,
-                        'courseshortname' => $course->shortname
-                    ];
-                    \local_o365\utils::debug($errmsg, $caller, $debugdata);
-                    throw new \moodle_exception('erroro365apisiteexistsnolocal', 'local_o365');
-                }
+                $errmsg = 'Can\'t create a SharePoint subsite site because one exists but we don\'t have a local record.';
+                $debugdata = [
+                    'fullsiteurl' => $fullsiteurl,
+                    'courseid' => $course->id,
+                    'courseshortname' => $course->shortname
+                ];
+                \local_o365\utils::debug($errmsg, $caller, $debugdata);
+                throw new \moodle_exception('erroro365apisiteexistsnolocal', 'local_o365');
             }
-        // }
+        }
     }
 
     /**
@@ -706,9 +693,9 @@ class sharepoint extends \local_o365\rest\o365api {
      *
      * @param int|\stdClass $course A course record or course ID.
      * @return bool Success/Failure.
+     * @uses exit
      */
     public function create_course_site($course) {
-        // TODO INTERCEPT
         global $DB;
         $now = time();
 
@@ -722,47 +709,53 @@ class sharepoint extends \local_o365\rest\o365api {
             }
         }
 
-        $requiredcapability = static::get_course_site_required_capability();
+        $coursesubsiteenabled = \local_o365\feature\sharepointcustom\utils::course_subsite_enabled($course); // $this->course_subsite_enabled($course);
+        if (!$coursesubsiteenabled) {
+            error_log('coursesubsiteenabled is false. Cannot create a subsite for this course.');
+            return false;
+        } else {
+            $requiredcapability = static::get_course_site_required_capability();
 
-        $siterec = $this->create_course_subsite($course);
-        $this->set_site($siterec->siteurl);
+            $siterec = $this->create_course_subsite($course);
+            $this->set_site($siterec->siteurl);
 
-        // Create teacher group and save in db.
-        $grouprec = $DB->get_record('local_o365_spgroupdata', ['coursespsiteid' => $siterec->id, 'permtype' => 'contribute']);
-        if (empty($grouprec)) {
-            $groupname = $siterec->siteurl.' contribute';
-            $description = get_string('spsite_group_contributors_desc', 'local_o365', $siterec->siteurl);
-            $groupname = trim(base64_encode($groupname), '=');
+            // Create teacher group and save in db.
+            $grouprec = $DB->get_record('local_o365_spgroupdata', ['coursespsiteid' => $siterec->id, 'permtype' => 'contribute']);
+            if (empty($grouprec)) {
+                $groupname = $siterec->siteurl.' contribute';
+                $description = get_string('spsite_group_contributors_desc', 'local_o365', $siterec->siteurl);
+                $groupname = trim(base64_encode($groupname), '=');
 
-            // Get or create the group.
-            try {
-                $groupdata = $this->get_group($groupname);
-            } catch (\Exception $e) {
-                // An error here indicates the group does not exist. Create it.
-                $groupdata = $this->create_group($groupname, $description);
+                // Get or create the group.
+                try {
+                    $groupdata = $this->get_group($groupname);
+                } catch (\Exception $e) {
+                    // An error here indicates the group does not exist. Create it.
+                    $groupdata = $this->create_group($groupname, $description);
+                }
+
+                if (!empty($groupdata) && isset($groupdata['Id']) && isset($groupdata['Title'])) {
+                    $grouprec = new \stdClass;
+                    $grouprec->coursespsiteid = $siterec->id;
+                    $grouprec->groupid = $groupdata['Id'];
+                    $grouprec->grouptitle = $groupdata['Title'];
+                    $grouprec->permtype = 'contribute';
+                    $grouprec->timecreated = $now;
+                    $grouprec->timemodified = $now;
+                    $grouprec->id = $DB->insert_record('local_o365_spgroupdata', $grouprec);
+                } else {
+                    throw new \moodle_exception('errorcouldnotcreatespgroup', 'local_o365');
+                }
             }
 
-            if (!empty($groupdata) && isset($groupdata['Id']) && isset($groupdata['Title'])) {
-                $grouprec = new \stdClass;
-                $grouprec->coursespsiteid = $siterec->id;
-                $grouprec->groupid = $groupdata['Id'];
-                $grouprec->grouptitle = $groupdata['Title'];
-                $grouprec->permtype = 'contribute';
-                $grouprec->timecreated = $now;
-                $grouprec->timemodified = $now;
-                $grouprec->id = $DB->insert_record('local_o365_spgroupdata', $grouprec);
-            } else {
-                throw new \moodle_exception('errorcouldnotcreatespgroup', 'local_o365');
-            }
+            // Assign group permissions.
+            $this->assign_group_permissions($grouprec->groupid, $grouprec->permtype);
+
+            // Get users who need access.
+            $coursecontext = \context_course::instance($course->id);
+            $results = $this->add_users_with_capability_to_group($coursecontext, $requiredcapability, $grouprec->groupid);
+            return true;
         }
-
-        // Assign group permissions.
-        $this->assign_group_permissions($grouprec->groupid, $grouprec->permtype);
-
-        // Get users who need access.
-        $coursecontext = \context_course::instance($course->id);
-        $results = $this->add_users_with_capability_to_group($coursecontext, $requiredcapability, $grouprec->groupid);
-        return true;
     }
 
     /**

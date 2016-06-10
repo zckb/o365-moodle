@@ -541,7 +541,6 @@ class acp extends base {
     public function mode_sharepointcourseenabled_change() {
         $courseid = (int)required_param('courseid', PARAM_INT);
         $enabled = (bool)required_param('state', PARAM_BOOL);
-        $feature = (string)optional_param('feature', 'enabled', PARAM_ALPHA);
         require_sesskey();
 
         // if ($feature === 'enabled') {
