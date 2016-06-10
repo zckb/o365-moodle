@@ -536,6 +536,23 @@ class acp extends base {
     }
 
     /**
+     * Endpoint to change sharepoint subsite customization.
+     */
+    public function mode_sharepointcourseenabled_change() {
+        $courseid = (int)required_param('courseid', PARAM_INT);
+        $enabled = (bool)required_param('state', PARAM_BOOL);
+        $feature = (string)optional_param('feature', 'enabled', PARAM_ALPHA);
+        require_sesskey();
+
+        // if ($feature === 'enabled') {
+        \local_o365\feature\sharepointcustom\utils::set_course_subsite_enabled($courseid, $enabled);
+        // } else if (in_array($feature, ['onedrive', 'calendar', 'conversations'])) {
+        //    \local_o365\feature\usergroups\utils::set_course_group_feature_enabled($courseid, [$feature], $enabled);
+        // }
+        echo json_encode(['Saved']);
+    }
+
+    /**
      * Sharepoint course resource customization.
      */
     public function mode_sharepointcourseselect() {
@@ -586,11 +603,10 @@ class acp extends base {
             if ($course->id == SITEID) {
                 continue;
             }
-            // TODO Change this to class sharepoint enabled
-            $isenabled = \local_o365\feature\usergroups\utils::course_is_group_enabled($course->id);
+
+            $isenabled = \local_o365\feature\sharepointcustom\utils::course_is_sharepoint_enabled($course->id);
             $enabledname = 'course_'.$course->id.'_enabled';
 
-            // TODO Update for sharepoint enabled
             $enablecheckboxattrs = [
                 'onchange' => 'local_o365_set_sharepoint_enabled(\''.$course->id.'\', $(this).prop(\'checked\'), $(this))'
             ];
@@ -612,11 +628,19 @@ class acp extends base {
         $this->standard_header();
 
         // TODO This stuff needs to be all redone for my stuff.
-        $endpoint = new \moodle_url('/local/o365/acp.php', ['mode' => 'usergroupcustom_change', 'sesskey' => sesskey()]);
-        $bulkendpoint = new \moodle_url('/local/o365/acp.php', ['mode' => 'usergroupcustom_bulkchange', 'sesskey' => sesskey()]);
+        $endpoint = new \moodle_url('/local/o365/acp.php', ['mode' => 'sharepointcourseenabled_change', 'sesskey' => sesskey()]);
+        // $bulkendpoint = new \moodle_url('/local/o365/acp.php', ['mode' => 'usergroupcustom_bulkchange', 'sesskey' => sesskey()]);
 
         // Build JS script content.
         $js = 'var local_o365_set_sharepoint_enabled = function(courseid, state, checkbox) { ';
+        $js .= 'data = {courseid: courseid, state: state}; ';
+        $js .= '$.post(\''.$endpoint->out(false).'\', data, function(data) { console.log(data); }); ';
+        $js .= 'var newfeaturedisabled = (state == 0) ? true : false; ';
+        $js .= 'var newfeaturechecked = (state == 1) ? true : false; ';
+        $js .= 'var featurecheckboxes = checkbox.parents("tr").find("input.feature"); ';
+        $js .= 'featurecheckboxes.prop("disabled", newfeaturedisabled); ';
+        $js .= 'featurecheckboxes.prop("checked", newfeaturechecked); ';
+
         $js .= 'console.log("local_o365_set_sharepoint_enabled"); ';
         $js .= '};';
         // Filter by category.

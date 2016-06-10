@@ -320,7 +320,6 @@ class sharepoint extends \local_o365\rest\o365api {
      * @return array|null Returned response, or null if error.
      */
     public function create_site($title, $url, $description) {
-        // TODO check  for custom, if custom, then intercept this.
         $webcreationinformation = [
             'parameters' => [
                 'Title' => $title,
@@ -613,29 +612,24 @@ class sharepoint extends \local_o365\rest\o365api {
 
         $siteurl = strtolower(preg_replace('/[^a-z0-9_]+/iu', '', $course->shortname));
         $fullsiteurl = '/'.$this->parentsite.'/'.$siteurl;
+        // working
+        // $customsubsitesenabled = get_config('local_o365', 'sharepointcourseselect');
+        // $subsitesconfig = get_config('local_o365', 'sharepointsubsitescustom');
+        // error_log($subsitesconfig);
+        // $courseid = $course->id;
+        // $coursesubsiteenabled = $subsitesconfig[$courseid];
+        // error_log('test error log');
+        // error_log('$coursesubsiteenabled = '.$coursesubsiteenabled);
+        // error_log('evaluate for truthy = '.filter_var($coursesubsiteenabled, FILTER_VALIDATE_BOOLEAN));
 
+        // if ($customsubsitesenabled === 'off' || ($customsubsitesenabled == 'oncustom' && filter_var($coursesubsiteenabled, FILTER_VALIDATE_BOOLEAN))) {
+        // end working
         // Check if site exists.
-        if ($this->site_exists($fullsiteurl) !== true) {
-            // Create site.
-            \local_o365\utils::debug('Creating site '.$fullsiteurl, $caller);
-            $DB->delete_records('local_o365_coursespsite', ['courseid' => $course->id]);
-            $sitedata = $this->create_site($course->fullname, $siteurl, $course->summary);
-            $siterec = new \stdClass;
-            $siterec->courseid = $course->id;
-            $siterec->siteid = $sitedata['Id'];
-            $siterec->siteurl = $sitedata['ServerRelativeUrl'];
-            $siterec->timecreated = $now;
-            $siterec->timemodified = $now;
-            $siterec->id = $DB->insert_record('local_o365_coursespsite', $siterec);
-            return $siterec;
-        } else {
-            $debugmsg = 'Subsite already exists, looking for local data.';
-            \local_o365\utils::debug($debugmsg, $caller, $fullsiteurl);
-            if (!empty($siterec)) {
-                // We have a local spsite record for the course, but for a different parent site, so our record is out of date.
-                $sitedata = $this->get_site($fullsiteurl);
+            if ($this->site_exists($fullsiteurl) !== true) {
+                // Create site.
+                \local_o365\utils::debug('Creating site '.$fullsiteurl, $caller);
                 $DB->delete_records('local_o365_coursespsite', ['courseid' => $course->id]);
-                // Save site data.
+                $sitedata = $this->create_site($course->fullname, $siteurl, $course->summary);
                 $siterec = new \stdClass;
                 $siterec->courseid = $course->id;
                 $siterec->siteid = $sitedata['Id'];
@@ -645,16 +639,33 @@ class sharepoint extends \local_o365\rest\o365api {
                 $siterec->id = $DB->insert_record('local_o365_coursespsite', $siterec);
                 return $siterec;
             } else {
-                $errmsg = 'Can\'t create a SharePoint subsite site because one exists but we don\'t have a local record.';
-                $debugdata = [
-                    'fullsiteurl' => $fullsiteurl,
-                    'courseid' => $course->id,
-                    'courseshortname' => $course->shortname
-                ];
-                \local_o365\utils::debug($errmsg, $caller, $debugdata);
-                throw new \moodle_exception('erroro365apisiteexistsnolocal', 'local_o365');
+                $debugmsg = 'Subsite already exists, looking for local data.';
+                \local_o365\utils::debug($debugmsg, $caller, $fullsiteurl);
+                if (!empty($siterec)) {
+                    // We have a local spsite record for the course, but for a different parent site, so our record is out of date.
+                    $sitedata = $this->get_site($fullsiteurl);
+                    $DB->delete_records('local_o365_coursespsite', ['courseid' => $course->id]);
+                    // Save site data.
+                    $siterec = new \stdClass;
+                    $siterec->courseid = $course->id;
+                    $siterec->siteid = $sitedata['Id'];
+                    $siterec->siteurl = $sitedata['ServerRelativeUrl'];
+                    $siterec->timecreated = $now;
+                    $siterec->timemodified = $now;
+                    $siterec->id = $DB->insert_record('local_o365_coursespsite', $siterec);
+                    return $siterec;
+                } else {
+                    $errmsg = 'Can\'t create a SharePoint subsite site because one exists but we don\'t have a local record.';
+                    $debugdata = [
+                        'fullsiteurl' => $fullsiteurl,
+                        'courseid' => $course->id,
+                        'courseshortname' => $course->shortname
+                    ];
+                    \local_o365\utils::debug($errmsg, $caller, $debugdata);
+                    throw new \moodle_exception('erroro365apisiteexistsnolocal', 'local_o365');
+                }
             }
-        }
+        // }
     }
 
     /**
