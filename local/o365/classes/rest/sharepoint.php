@@ -930,7 +930,7 @@ class sharepoint extends \local_o365\rest\o365api {
      * @param string $content file content need to uploaded.
      * @return Response code
      */
-    public function upload_video_small($channelid, $videoid, $content) {
+    protected function upload_video_small($channelid, $videoid, $content) {
         $response = $this->apicall('post', "/VideoService/Channels('$channelid')/Videos('$videoid')/GetFile()/SaveBinaryStream", $content);
         $response = $this->process_apicall_response($response);
         return $response;
@@ -941,27 +941,63 @@ class sharepoint extends \local_o365\rest\o365api {
      *
      * @param string $channelid The ID of the channel where video need to uploaded.
      * @param string $videoid video ID.
-     * @param string $content file content need to uploaded.
+     * @param string $filename The name of file on disk with full path ...
      * @param string $guid.
      * @param integer $filesize.
      * @param integer $offsetsize.
      * @return Response code
      */
-    public function upload_video_large($channelid, $videoid, $content, $guid, $filesize, $offsetsize) {
+    protected function upload_video_large($channelid, $videoid, $filename, $guid, $filesize, $offsetsize) {
+        @set_time_limit(0);
         $response = $this->apicall('post', "/VideoService/Channels('$channelid')/Videos('$videoid')/GetFile()/StartUpload(uploadId=guid'$guid')");
         $response = $this->process_apicall_response($response);
         $uploadedsize = 0;
-        while($uploadedsize + $offsetsize < $filesize) {
-            $response = $this->apicall('post', "/VideoService/Channels('$channelid')/Videos('$videoid')/GetFile()/ContinueUpload(uploadId=guid'$guid',fileOffset='$uploadedsize')", $content);
-            $uploadedsize = $uploadedsize + $offsetsize;
+        while ($uploadedsize + $offsetsize < $filesize) {
+            $response = $this->apicall('post', "/VideoService/Channels('$channelid')/Videos('$videoid')/GetFile()/ContinueUpload(uploadId=guid'$guid',fileOffset='$uploadedsize')",
+                    file_get_contents($filename, false, null, $uploadedsize, $offsetsize));
+            $uploadedsize += $offsetsize;
             $response = $this->process_apicall_response($response);
             if (!$response['value']) {
                 return $response;
             }
         }
-        $response = $this->apicall('post', "/VideoService/Channels('$channelid')/Videos('$videoid')/GetFile()/FinishUpload(uploadId=guid'$guid',fileOffset='$uploadedsize')", $content);
+        $response = $this->apicall('post', "/VideoService/Channels('$channelid')/Videos('$videoid')/GetFile()/FinishUpload(uploadId=guid'$guid',fileOffset='$uploadedsize')",
+                file_get_contents($filename, false, null, $uploadedsize, $offsetsize));
         $response = $this->process_apicall_response($response);
         return $response;
+    }
+
+    /**
+     * Upload a video.
+     *
+     * @param string $channelid The ID of the channel where video need to uploaded.
+     * @param string $videoid video ID.
+     * @param string $filename The name of file on disk with full path ...
+     * @param integer $offsetsize.
+     * @return Response code
+     */
+    public function upload_video($channelid, $videoid, $filename, $offsetsize = 8192 * 1024) {
+        $filesize = filesize($filename);
+        if ($filesize < (8192 * 1024)) {
+            $result = $this->upload_video_small($channelid, $videoid, file_get_contents($filename));
+        } else {
+            $result = $this->upload_video_large($channelid, $videoid, $filename, static::new_guid(), $filesize, $offsetsize);
+        }
+        return $result;
+    }
+
+    /**
+     * Generate a new GUID.
+     *
+     * @return GUID as a string.
+     */
+    public static function new_guid() {
+        if (function_exists('com_create_guid') === true) {
+            return trim(com_create_guid(), '{}');
+        }
+        return sprintf('%04X%04X-%04X-%04X-%04X-%04X%04X%04X',
+                mt_rand(0, 65535), mt_rand(0, 65535), mt_rand(0, 65535), mt_rand(16384, 20479),
+                mt_rand(32768, 49151), mt_rand(0, 65535), mt_rand(0, 65535), mt_rand(0, 65535));
     }
 
     /**

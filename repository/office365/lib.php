@@ -457,15 +457,7 @@ class repository_office365 extends \repository {
                     $parentid = (!empty($filepath)) ? substr($filepath, 1) : '';
                     $videoobject = $sharepoint->create_video_placeholder($parentid, '', $filename, $filename);
                     if (!empty($videoobject)) {
-                        $filesize = number_format((strlen($content) / 1024), 2);
-                        $filesize = intval(str_replace(array(','), '', $filesize)) + 1;
-                        if ($filesize < 8192) {
-                            $result = $sharepoint->upload_video_small($videoobject['ChannelID'], $videoobject['ID'], $content);
-                        } else {
-                            $guid = $this->new_guid();
-                            $result = $sharepoint->upload_video_large($videoobject['ChannelID'], $videoobject['ID'], $content,
-                                    $guid, $filesize, 8192);
-                        }
+                        $result = $sharepoint->upload_video($videoobject['ChannelID'], $videoobject['ID'], $_FILES['repo_upload_file']['tmp_name']);
                         $parseurl = explode('/', $videoobject['Url']);
                         $downloadurl = "https://".$parseurl[2]."/_api/SP.AppContextSite(@target)/Web/"."GetFileByServerRelativeUrl('".$videoobject['ServerRelativeUrl'].
                                 "')/"."$"."value?@target='https://".$parseurl[2]."/portals/".$parseurl[4]."'";
@@ -1478,19 +1470,5 @@ class repository_office365 extends \repository {
             $mform->addElement('static', null, '', get_string('notconfigured', 'repository_office365', $CFG->wwwroot));
         }
         parent::type_config_form($mform);
-    }
-
-    /**
-     * Generate a new GUID.
-     *
-     * @return GUID as a string.
-     */
-    public function new_guid() {
-        if (function_exists('com_create_guid') === true) {
-            return trim(com_create_guid(), '{}');
-        }
-        return sprintf('%04X%04X-%04X-%04X-%04X-%04X%04X%04X',
-                mt_rand(0, 65535), mt_rand(0, 65535), mt_rand(0, 65535), mt_rand(16384, 20479),
-                mt_rand(32768, 49151), mt_rand(0, 65535), mt_rand(0, 65535), mt_rand(0, 65535));
     }
 }
